@@ -1,0 +1,10 @@
+{
+  "name": "Sổ Vựa Dừa AI",
+  "description": "Ứng dụng quản lý vựa dừa khô xuất khẩu: thu mua dừa nguyên trái, tách vỏ/chế biến phụ phẩm (cơm dừa, gáo dừa, xơ dừa), quản lý tồn kho theo lô, theo dõi công nợ phức tạp, xuất hàng container và tích hợp AI phân tích.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
