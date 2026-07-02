@@ -10,6 +10,7 @@ interface DashboardViewProps {
   processingRecords: ProcessingRecord[];
   shipments: ContainerShipment[];
   alerts: AIAnomalyAlert[];
+  canEdit: boolean;
   onAddTicketClick: () => void;
   onAddProcessingClick: () => void;
   onAddShipmentClick: () => void;
@@ -24,6 +25,7 @@ export default function DashboardView({
   processingRecords,
   shipments,
   alerts,
+  canEdit,
   onAddTicketClick,
   onAddProcessingClick,
   onAddShipmentClick,
@@ -350,7 +352,10 @@ export default function DashboardView({
                       {!alert.resolved && (
                         <button
                           onClick={() => onResolveAlert(alert.id)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-[8px] font-bold px-1.5 py-0.5 rounded"
+                          disabled={!canEdit}
+                          className={`text-white text-[8px] font-bold px-1.5 py-0.5 rounded ${
+                            canEdit ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400 cursor-not-allowed'
+                          }`}
                         >
                           Xử lý xong
                         </button>
@@ -375,7 +380,10 @@ export default function DashboardView({
               <h3 className="font-bold text-xs text-gray-700">Container / Chuyến xuất gần đây</h3>
               <button
                 onClick={onAddShipmentClick}
-                className="text-emerald-700 hover:text-emerald-800 text-[10px] font-bold"
+                disabled={!canEdit}
+                className={`text-[10px] font-bold ${
+                  canEdit ? 'text-emerald-700 hover:text-emerald-800' : 'text-gray-400 cursor-not-allowed'
+                }`}
               >
                 + Xuất chuyến mới
               </button>
@@ -426,19 +434,28 @@ export default function DashboardView({
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={onAddTicketClick}
-            className="bg-white/15 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded font-bold transition-all"
+            disabled={!canEdit}
+            className={`text-white text-xs px-3 py-1.5 rounded font-bold transition-all ${
+              canEdit ? 'bg-white/15 hover:bg-white/20' : 'bg-gray-600 cursor-not-allowed'
+            }`}
           >
             ⚖️ Nhập dừa & Cân xe
           </button>
           <button
             onClick={onAddProcessingClick}
-            className="bg-white/15 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded font-bold transition-all"
+            disabled={!canEdit}
+            className={`text-white text-xs px-3 py-1.5 rounded font-bold transition-all ${
+              canEdit ? 'bg-white/15 hover:bg-white/20' : 'bg-gray-600 cursor-not-allowed'
+            }`}
           >
             🛠️ Tạo Phiếu Chế Biến Cơm
           </button>
           <button
             onClick={onAddShipmentClick}
-            className="bg-yellow-500 hover:bg-yellow-600 text-emerald-950 text-xs px-3 py-1.5 rounded font-black transition-all"
+            disabled={!canEdit}
+            className={`text-xs px-3 py-1.5 rounded font-black transition-all ${
+              canEdit ? 'bg-yellow-500 hover:bg-yellow-600 text-emerald-950' : 'bg-gray-600 text-gray-200 cursor-not-allowed'
+            }`}
           >
             🚢 Xuất Container Hàng
           </button>

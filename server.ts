@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Load environment variables
-dotenv.config();
+// Load environment variables. Local development uses .env.local per README.
+dotenv.config({ path: [path.resolve(process.cwd(), ".env.local"), path.resolve(process.cwd(), ".env")] });
 
 const app = express();
 const PORT = 3000;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   initialSellers,
   initialBuyers,
@@ -10,6 +10,13 @@ import {
   initialAlerts
 } from './initialData';
 import { Seller, Buyer, Lot, PurchaseTicket, ProcessingRecord, ContainerShipment, DebtTransaction, AIAnomalyAlert } from './types';
+import { canMutateData, getDemoAccounts, loginWithDemoAccount, sanitizeSession, UserSession } from './auth';
+import {
+  createInitialLocalDatabase,
+  LOCAL_DATABASE_KEY,
+  parseLocalDatabase,
+  serializeLocalDatabase,
+} from './localDatabase';
 
 // Import Views
 import DashboardView from './components/DashboardView';
@@ -17,28 +24,93 @@ import PurchaseView from './components/PurchaseView';
 import LotsView from './components/LotsView';
 import ShipmentsView from './components/ShipmentsView';
 import DebtView from './components/DebtView';
+import WarehouseView from './components/WarehouseView';
 
-import { BarChart3, Scale, Layers, Truck, CreditCard, Sparkles, Bot, Clock } from 'lucide-react';
+import { BarChart3, Scale, Layers, Truck, CreditCard, Sparkles, Bot, Clock, Lock, LogOut, ShieldCheck, UserCheck, Archive, PackageCheck } from 'lucide-react';
+
+const SESSION_STORAGE_KEY = 'so-vua-dua-ai-session';
+
+const getStoredDatabase = () => {
+  if (typeof localStorage === 'undefined') return null;
+  return parseLocalDatabase(localStorage.getItem(LOCAL_DATABASE_KEY));
+};
 
 export default function App() {
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'purchase' | 'lots' | 'shipments' | 'debt'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'purchase' | 'importWarehouse' | 'exportWarehouse' | 'lots' | 'shipments' | 'debt'>('dashboard');
+  const [session, setSession] = useState<UserSession | null>(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+      return stored ? sanitizeSession(JSON.parse(stored)) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loginUsername, setLoginUsername] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('admin123');
+  const [loginError, setLoginError] = useState('');
+
+  const canEdit = canMutateData(session);
+  const demoAccounts = useMemo(() => getDemoAccounts(), []);
+
+  useEffect(() => {
+    if (session) {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [session]);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const nextSession = loginWithDemoAccount(loginUsername, loginPassword);
+    if (!nextSession) {
+      setLoginError('Sai tài khoản hoặc mật khẩu. Hãy dùng một tài khoản mẫu bên dưới.');
+      return;
+    }
+    setLoginError('');
+    setSession(nextSession);
+  };
+
+  const requireEditPermission = () => {
+    if (canEdit) return true;
+    alert('Tài khoản hiện tại chỉ được xem. Hãy đăng nhập Admin hoặc Nhân viên kho để thao tác chỉnh sửa.');
+    return false;
+  };
 
   // Main Database State
-  const [sellers, setSellers] = useState<Seller[]>(initialSellers);
-  const [buyers, setBuyers] = useState<Buyer[]>(initialBuyers);
-  const [lots, setLots] = useState<Lot[]>(initialLots);
-  const [tickets, setTickets] = useState<PurchaseTicket[]>(initialTickets);
-  const [processingRecords, setProcessingRecords] = useState<ProcessingRecord[]>(initialProcessingRecords);
-  const [shipments, setShipments] = useState<ContainerShipment[]>(initialShipments);
-  const [transactions, setTransactions] = useState<DebtTransaction[]>(initialDebtTransactions);
-  const [alerts, setAlerts] = useState<AIAnomalyAlert[]>(initialAlerts);
+  const [storedDatabaseLoaded] = useState(() => getStoredDatabase());
+  const [sellers, setSellers] = useState<Seller[]>(storedDatabaseLoaded?.sellers || initialSellers);
+  const [buyers, setBuyers] = useState<Buyer[]>(storedDatabaseLoaded?.buyers || initialBuyers);
+  const [lots, setLots] = useState<Lot[]>(storedDatabaseLoaded?.lots || initialLots);
+  const [tickets, setTickets] = useState<PurchaseTicket[]>(storedDatabaseLoaded?.tickets || initialTickets);
+  const [processingRecords, setProcessingRecords] = useState<ProcessingRecord[]>(storedDatabaseLoaded?.processingRecords || initialProcessingRecords);
+  const [shipments, setShipments] = useState<ContainerShipment[]>(storedDatabaseLoaded?.shipments || initialShipments);
+  const [transactions, setTransactions] = useState<DebtTransaction[]>(storedDatabaseLoaded?.transactions || initialDebtTransactions);
+  const [alerts, setAlerts] = useState<AIAnomalyAlert[]>(storedDatabaseLoaded?.alerts || initialAlerts);
+  const [databaseSavedAt, setDatabaseSavedAt] = useState(storedDatabaseLoaded?.savedAt || '');
 
   // Loading States
   const [isAuditLoading, setIsAuditLoading] = useState(false);
 
+  useEffect(() => {
+    const database = createInitialLocalDatabase({
+      sellers,
+      buyers,
+      lots,
+      tickets,
+      processingRecords,
+      shipments,
+      transactions,
+      alerts,
+    });
+    localStorage.setItem(LOCAL_DATABASE_KEY, serializeLocalDatabase(database));
+    setDatabaseSavedAt(database.savedAt);
+  }, [sellers, buyers, lots, tickets, processingRecords, shipments, transactions, alerts]);
+
   // Handler to add a new purchase ticket
   const handleAddTicket = (newTicket: PurchaseTicket, newLot: Lot) => {
+    if (!requireEditPermission()) return;
     // Add ticket
     setTickets(prev => [newTicket, ...prev]);
 
@@ -89,6 +161,7 @@ export default function App() {
 
   // Handler to record processing/peeling
   const handleAddProcessingRecord = (record: ProcessingRecord) => {
+    if (!requireEditPermission()) return;
     setProcessingRecords(prev => [record, ...prev]);
 
     // Deduct raw coconuts from associated Lot currentWeight
@@ -124,6 +197,7 @@ export default function App() {
 
   // Handler to add shipment
   const handleAddShipment = (shipment: ContainerShipment) => {
+    if (!requireEditPermission()) return;
     setShipments(prev => [shipment, ...prev]);
 
     // Update Buyer's total purchased and currentDebt
@@ -170,6 +244,7 @@ export default function App() {
 
   // Handler for direct debt payment/advance/write-off transactions
   const handleAddTransaction = (newTx: DebtTransaction) => {
+    if (!requireEditPermission()) return;
     setTransactions(prev => [newTx, ...prev]);
 
     // Apply debt change directly to partner current balance
@@ -201,6 +276,7 @@ export default function App() {
 
   // Handler to clear warning/alert
   const handleResolveAlert = (id: string) => {
+    if (!requireEditPermission()) return;
     setAlerts(prev => prev.map(a => {
       if (a.id === id) {
         return { ...a, resolved: true };
@@ -211,6 +287,7 @@ export default function App() {
 
   // Trigger AI Auditor Analysis via endpoint
   const handleRunAIAudit = async () => {
+    if (!requireEditPermission()) return;
     setIsAuditLoading(true);
     try {
       const response = await fetch('/api/ai/detect-anomalies', {
@@ -237,6 +314,92 @@ export default function App() {
       setIsAuditLoading(false);
     }
   };
+
+  if (!session) {
+    return (
+      <div className="min-h-screen w-screen bg-[#f0f2f5] flex items-center justify-center p-6 font-sans text-[#1a202c]">
+        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-5">
+          <section className="bg-[#064e3b] text-white rounded-lg p-7 shadow-sm flex flex-col justify-between min-h-[520px]">
+            <div>
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-12 h-12 rounded-lg bg-yellow-400 text-emerald-950 flex items-center justify-center">
+                  <ShieldCheck size={26} />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black tracking-tight">Sổ Vựa Dừa AI</h1>
+                  <p className="text-xs uppercase tracking-wider text-emerald-200 font-bold">Cổng quản trị vận hành local</p>
+                </div>
+              </div>
+              <h2 className="text-3xl font-black leading-tight max-w-xl">
+                Đăng nhập để quản lý thu mua, kho, xuất container và công nợ.
+              </h2>
+              <p className="mt-4 text-sm text-emerald-100 leading-6 max-w-xl">
+                Bản local này dùng tài khoản mẫu trong trình duyệt. Admin và nhân viên được ghi dữ liệu, tài khoản xem chỉ dùng dashboard và trợ lý AI.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-8">
+              {demoAccounts.map(account => (
+                <button
+                  key={account.username}
+                  type="button"
+                  onClick={() => {
+                    setLoginUsername(account.username);
+                    setLoginPassword(account.username === 'admin' ? 'admin123' : account.username === 'kho' ? 'kho123' : 'viewer123');
+                    setLoginError('');
+                  }}
+                  className="text-left rounded-lg border border-emerald-700 bg-[#033f2f] p-3 hover:bg-[#065f46] transition-colors"
+                >
+                  <div className="text-xs font-black uppercase text-yellow-300">{account.role}</div>
+                  <div className="text-sm font-bold mt-1">{account.username}</div>
+                  <div className="text-[11px] text-emerald-100 mt-2 leading-4">{account.description}</div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <form onSubmit={handleLogin} className="bg-white rounded-lg p-7 shadow-sm border flex flex-col justify-center">
+            <div className="flex items-center gap-2 text-emerald-800 mb-5">
+              <Lock size={19} />
+              <h2 className="text-lg font-black">Đăng nhập quản trị</h2>
+            </div>
+            <label className="text-xs font-bold text-gray-600 mb-1">Tài khoản</label>
+            <input
+              value={loginUsername}
+              onChange={e => setLoginUsername(e.target.value)}
+              className="border rounded-lg px-3 py-2.5 text-sm font-semibold mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              autoComplete="username"
+            />
+            <label className="text-xs font-bold text-gray-600 mb-1">Mật khẩu</label>
+            <input
+              value={loginPassword}
+              onChange={e => setLoginPassword(e.target.value)}
+              type="password"
+              className="border rounded-lg px-3 py-2.5 text-sm font-semibold mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              autoComplete="current-password"
+            />
+            {loginError && (
+              <div className="mb-3 rounded-lg bg-red-50 text-red-700 border border-red-200 px-3 py-2 text-xs font-semibold">
+                {loginError}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg py-2.5 text-sm font-black flex items-center justify-center gap-2"
+            >
+              <UserCheck size={16} />
+              Vào hệ thống
+            </button>
+            <div className="mt-5 rounded-lg bg-gray-50 border p-3 text-xs text-gray-600 leading-5">
+              <div className="font-black text-gray-800 mb-1">Tài khoản mẫu</div>
+              <div>Admin: <strong>admin</strong> / <strong>admin123</strong></div>
+              <div>Nhân viên kho: <strong>kho</strong> / <strong>kho123</strong></div>
+              <div>Chỉ xem: <strong>viewer</strong> / <strong>viewer123</strong></div>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-[#f0f2f5] font-sans text-[#1a202c] overflow-hidden">
@@ -273,6 +436,30 @@ export default function App() {
             >
               <Scale size={15} />
               <span>Ghi nhận thu mua dừa</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('importWarehouse')}
+              className={`w-full p-2.5 rounded-lg flex items-center gap-2.5 transition-all text-left ${
+                activeTab === 'importWarehouse'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-emerald-100 hover:bg-[#065f46]'
+              }`}
+            >
+              <Archive size={15} />
+              <span>Kho nhập hàng</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('exportWarehouse')}
+              className={`w-full p-2.5 rounded-lg flex items-center gap-2.5 transition-all text-left ${
+                activeTab === 'exportWarehouse'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-emerald-100 hover:bg-[#065f46]'
+              }`}
+            >
+              <PackageCheck size={15} />
+              <span>Kho xuất hàng</span>
             </button>
 
             <button
@@ -339,7 +526,7 @@ export default function App() {
             </h2>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-semibold">
+          <div className="flex items-center gap-3 text-xs font-semibold">
             <div className="text-right">
               <div className="text-gray-400 font-mono flex items-center gap-1">
                 <Clock size={12} />
@@ -347,9 +534,23 @@ export default function App() {
               </div>
               <span className="text-emerald-700 font-bold">Vựa Dừa Khô Bến Tre - Chi nhánh 1</span>
             </div>
-            <div className="w-9 h-9 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center font-black text-emerald-800">
-              AD
+            <div className="text-right hidden sm:block">
+              <div className="text-[10px] text-gray-400 uppercase font-black">Phiên đăng nhập</div>
+              <div className="text-emerald-800 font-black">{session.name}</div>
+              <div className={`text-[10px] font-black ${canEdit ? 'text-green-600' : 'text-amber-600'}`}>
+                {canEdit ? 'Được chỉnh sửa' : 'Chỉ xem'}
+              </div>
             </div>
+            <div className="w-9 h-9 bg-emerald-100 border border-emerald-300 rounded-full flex items-center justify-center font-black text-emerald-800 uppercase">
+              {session.role.slice(0, 2)}
+            </div>
+            <button
+              onClick={() => setSession(null)}
+              className="p-2 rounded-lg border hover:bg-gray-50 text-gray-600"
+              title="Đăng xuất"
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </header>
 
@@ -363,6 +564,7 @@ export default function App() {
             processingRecords={processingRecords}
             shipments={shipments}
             alerts={alerts}
+            canEdit={canEdit}
             onAddTicketClick={() => setActiveTab('purchase')}
             onAddProcessingClick={() => setActiveTab('lots')}
             onAddShipmentClick={() => setActiveTab('shipments')}
@@ -374,7 +576,32 @@ export default function App() {
           <PurchaseView
             sellers={sellers}
             tickets={tickets}
+            canEdit={canEdit}
             onAddTicket={handleAddTicket}
+            onOpenImportWarehouse={() => setActiveTab('importWarehouse')}
+            onOpenPayment={() => setActiveTab('debt')}
+          />
+        )}
+
+        {activeTab === 'importWarehouse' && (
+          <WarehouseView
+            mode="import"
+            lots={lots}
+            tickets={tickets}
+            shipments={shipments}
+            onOpenPayment={() => setActiveTab('debt')}
+            onCreateExport={() => setActiveTab('shipments')}
+          />
+        )}
+
+        {activeTab === 'exportWarehouse' && (
+          <WarehouseView
+            mode="export"
+            lots={lots}
+            tickets={tickets}
+            shipments={shipments}
+            onOpenPayment={() => setActiveTab('debt')}
+            onCreateExport={() => setActiveTab('shipments')}
           />
         )}
 
@@ -382,6 +609,7 @@ export default function App() {
           <LotsView
             lots={lots}
             processingRecords={processingRecords}
+            canEdit={canEdit}
             onAddProcessingRecord={handleAddProcessingRecord}
             onRunAIAudit={handleRunAIAudit}
             isAuditLoading={isAuditLoading}
@@ -393,6 +621,7 @@ export default function App() {
             buyers={buyers}
             lots={lots}
             shipments={shipments}
+            canEdit={canEdit}
             onAddShipment={handleAddShipment}
           />
         )}
@@ -402,6 +631,7 @@ export default function App() {
             sellers={sellers}
             buyers={buyers}
             transactions={transactions}
+            canEdit={canEdit}
             onAddTransaction={handleAddTransaction}
           />
         )}
@@ -421,6 +651,10 @@ export default function App() {
             <span className="text-yellow-400 font-bold">
               ⚠️ {alerts.filter(a => !a.resolved).length} cảnh báo chưa xử lý
             </span>
+            <span className="text-gray-400 hidden lg:inline">|</span>
+            <span className="text-blue-300 font-bold hidden lg:inline">
+              DB local: {databaseSavedAt ? new Date(databaseSavedAt).toLocaleTimeString('vi-VN') : 'đang lưu'}
+            </span>
           </div>
 
           <div className="flex gap-2">
@@ -432,7 +666,10 @@ export default function App() {
             </button>
             <button
               onClick={() => setActiveTab('purchase')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-3.5 py-1 rounded transition-colors"
+              disabled={!canEdit}
+              className={`font-black px-3.5 py-1 rounded transition-colors ${
+                canEdit ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-600 text-gray-300 cursor-not-allowed'
+              }`}
             >
               CÂN NHẬP HÀNG NGAY
             </button>

@@ -1,14 +1,26 @@
 import React, { useState } from 'react';
 import { Seller, PurchaseTicket, Lot } from '../types';
 import { Eye, Scale, FileText, Camera, Check, RefreshCw, Sparkles, User, AlertCircle, Trash2 } from 'lucide-react';
+import { getImageUploadLabel, isSupportedImageFile, readImageAsDataUrl } from '../imageUpload';
+import { buildPaymentVoucher } from '../purchaseDocuments';
 
 interface PurchaseViewProps {
   sellers: Seller[];
   tickets: PurchaseTicket[];
+  canEdit: boolean;
   onAddTicket: (ticket: PurchaseTicket, newLot: Lot) => void;
+  onOpenImportWarehouse: () => void;
+  onOpenPayment: () => void;
 }
 
-export default function PurchaseView({ sellers, tickets, onAddTicket }: PurchaseViewProps) {
+export default function PurchaseView({
+  sellers,
+  tickets,
+  canEdit,
+  onAddTicket,
+  onOpenImportWarehouse,
+  onOpenPayment,
+}: PurchaseViewProps) {
   // Main form states
   const [selectedSellerId, setSelectedSellerId] = useState(sellers[0]?.id || '');
   const [licensePlate, setLicensePlate] = useState('84C-125.84');
@@ -29,11 +41,14 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
   const [isQualityScanning, setIsQualityScanning] = useState(false);
   const [qualityType, setQualityType] = useState<'good' | 'mixed' | 'damaged'>('mixed');
   const [aiQualityResult, setAiQualityResult] = useState<any>(null);
+  const [qualityImage, setQualityImage] = useState<{ name: string; dataUrl: string; size: number } | null>(null);
 
   // AI Ticket Scan
   const [isTicketScanning, setIsTicketScanning] = useState(false);
   const [ticketSampleType, setTicketSampleType] = useState<'slip1' | 'slip2' | 'slip3'>('slip1');
   const [aiTicketResult, setAiTicketResult] = useState<any>(null);
+  const [ticketImage, setTicketImage] = useState<{ name: string; dataUrl: string; size: number } | null>(null);
+  const [lastSavedPurchase, setLastSavedPurchase] = useState<{ ticket: PurchaseTicket; lot: Lot } | null>(null);
 
   // Computed Fields
   const netWeight = Math.max(0, grossWeight - tareWeight);
@@ -54,6 +69,20 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
     damaged: "Dừa mọc mầm lên mộng: Khoảng 15% trái đã nhú mộng dừa, vỏ có vết mốc thối ẩm."
   };
 
+  const handleImageSelect = async (
+    file: File | undefined,
+    setImage: React.Dispatch<React.SetStateAction<{ name: string; dataUrl: string; size: number } | null>>
+  ) => {
+    if (!file) return;
+    if (!isSupportedImageFile(file)) {
+      alert('Vui lòng chọn ảnh JPG, PNG hoặc WebP và dung lượng không quá 6 MB.');
+      return;
+    }
+
+    const dataUrl = await readImageAsDataUrl(file);
+    setImage({ name: file.name, dataUrl, size: file.size });
+  };
+
   const handleScanTicket = async () => {
     setIsTicketScanning(true);
     setAiTicketResult(null);
@@ -62,7 +91,10 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
       const response = await fetch('/api/ai/scan-ticket', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sampleType: ticketSampleType })
+        body: JSON.stringify({
+          sampleType: ticketSampleType,
+          image: ticketImage?.dataUrl
+        })
       });
       const resData = await response.json();
       if (resData.success) {
@@ -97,7 +129,10 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           category: qualityType,
-          textDetails: sampleQualityInfo[qualityType]
+          textDetails: qualityImage
+            ? `Ảnh mẫu dừa tải từ máy tính: ${qualityImage.name}. Hãy đánh giá chất lượng dựa trên ảnh.`
+            : sampleQualityInfo[qualityType],
+          image: qualityImage?.dataUrl
         })
       });
       const resData = await response.json();
@@ -126,6 +161,10 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      alert('Tài khoản hiện tại chỉ được xem. Hãy đăng nhập Admin hoặc Nhân viên kho để lưu phiếu mua.');
+      return;
+    }
 
     const selectedSeller = sellers.find(s => s.id === selectedSellerId);
     if (!selectedSeller) return;
@@ -156,7 +195,17 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
       finalAmount,
       paidAmount,
       paymentStatus,
-      note: note || (aiQualityResult ? `Đánh giá chất lượng AI: ${aiQualityResult.qualityTags?.join(', ')}` : '')
+      scannedImage: ticketImage?.dataUrl,
+      qualityImage: qualityImage?.dataUrl,
+      scannedImageName: ticketImage?.name,
+      qualityImageName: qualityImage?.name,
+      aiExtractedText: aiTicketResult?.extractedText,
+      paymentVoucherCode: `PAY-${ticketId}`,
+      note: [
+        note || (aiQualityResult ? `Đánh giá chất lượng AI: ${aiQualityResult.qualityTags?.join(', ')}` : ''),
+        ticketImage ? `Ảnh phiếu cân: ${ticketImage.name}` : '',
+        qualityImage ? `Ảnh mẫu dừa: ${qualityImage.name}` : ''
+      ].filter(Boolean).join(' | ')
     };
 
     const newLot: Lot = {
@@ -174,10 +223,15 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
       qualityNotes: aiQualityResult?.qualityTags || ['Mới nhập qua cân'],
       location,
       processedWeight: 0,
-      note: note
+      note: [
+        note,
+        ticketImage ? `Ảnh phiếu cân: ${ticketImage.name}` : '',
+        qualityImage ? `Ảnh mẫu dừa: ${qualityImage.name}` : ''
+      ].filter(Boolean).join(' | ')
     };
 
     onAddTicket(newTicket, newLot);
+    setLastSavedPurchase({ ticket: newTicket, lot: newLot });
 
     // Reset Form
     setGrossWeight(0);
@@ -189,6 +243,8 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
     setNote('');
     setAiQualityResult(null);
     setAiTicketResult(null);
+    setTicketImage(null);
+    setQualityImage(null);
   };
 
   return (
@@ -227,6 +283,36 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
               <div className="text-[9px] text-gray-400 italic leading-snug">
                 {sampleSlipsInfo[ticketSampleType]}
               </div>
+            </div>
+
+            <div className="mt-2 bg-emerald-50/60 p-2.5 rounded border border-emerald-100 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-emerald-800 uppercase">Ảnh phiếu cân từ máy tính</label>
+                  <div className="text-[9px] text-emerald-700 font-medium">{getImageUploadLabel(ticketImage)}</div>
+                </div>
+                <label className="cursor-pointer bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1.5 rounded">
+                  Chọn ảnh
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(event) => handleImageSelect(event.target.files?.[0], setTicketImage)}
+                  />
+                </label>
+              </div>
+              {ticketImage && (
+                <div className="flex gap-2 items-start">
+                  <img src={ticketImage.dataUrl} alt="Ảnh phiếu cân đã chọn" className="h-20 w-28 object-cover rounded border bg-white" />
+                  <button
+                    type="button"
+                    onClick={() => setTicketImage(null)}
+                    className="text-[10px] text-red-600 font-bold hover:underline"
+                  >
+                    Bỏ ảnh
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -286,6 +372,36 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
               <div className="text-[9px] text-gray-400 italic leading-snug">
                 {sampleQualityInfo[qualityType]}
               </div>
+            </div>
+
+            <div className="mt-2 bg-amber-50/70 p-2.5 rounded border border-amber-100 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-amber-800 uppercase">Ảnh mẫu dừa từ máy tính</label>
+                  <div className="text-[9px] text-amber-700 font-medium">{getImageUploadLabel(qualityImage)}</div>
+                </div>
+                <label className="cursor-pointer bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-1.5 rounded">
+                  Chọn ảnh
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(event) => handleImageSelect(event.target.files?.[0], setQualityImage)}
+                  />
+                </label>
+              </div>
+              {qualityImage && (
+                <div className="flex gap-2 items-start">
+                  <img src={qualityImage.dataUrl} alt="Ảnh mẫu dừa đã chọn" className="h-20 w-28 object-cover rounded border bg-white" />
+                  <button
+                    type="button"
+                    onClick={() => setQualityImage(null)}
+                    className="text-[10px] text-red-600 font-bold hover:underline"
+                  >
+                    Bỏ ảnh
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -521,13 +637,154 @@ export default function PurchaseView({ sellers, tickets, onAddTicket }: Purchase
 
           <button
             type="submit"
-            className="w-full md:w-auto bg-yellow-400 hover:bg-yellow-500 text-emerald-950 font-black px-6 py-2.5 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all"
+            disabled={!canEdit}
+            className={`w-full md:w-auto font-black px-6 py-2.5 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all ${
+              canEdit ? 'bg-yellow-400 hover:bg-yellow-500 text-emerald-950' : 'bg-gray-400 text-gray-100 cursor-not-allowed'
+            }`}
           >
             <Scale size={14} />
             <span>Xác nhận Cân & Lưu Phiếu Mua</span>
           </button>
         </div>
       </form>
+
+      {lastSavedPurchase && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 print:grid-cols-1">
+          <section className="bg-white rounded-lg shadow-sm border p-4 print:shadow-none">
+            <div className="flex items-start justify-between gap-3 border-b pb-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-emerald-700 font-black">Phiếu nhập hàng</div>
+                <h3 className="text-lg font-black text-gray-900">{lastSavedPurchase.lot.code}</h3>
+                <p className="text-xs text-gray-500">Tạo từ phiếu cân {lastSavedPurchase.ticket.licensePlate}</p>
+              </div>
+              <div className="flex gap-2 flex-wrap justify-end">
+                <button
+                  type="button"
+                  onClick={onOpenImportWarehouse}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black px-3 py-2 rounded"
+                >
+                  Lưu kho nhập hàng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="bg-gray-900 hover:bg-black text-white text-xs font-black px-3 py-2 rounded"
+                >
+                  In phiếu
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs mt-3">
+              <div>
+                <div className="text-gray-500 font-bold">Người bán</div>
+                <div className="font-black text-gray-900">{lastSavedPurchase.ticket.sellerName}</div>
+              </div>
+              <div>
+                <div className="text-gray-500 font-bold">Ngày nhập</div>
+                <div className="font-mono font-black">{lastSavedPurchase.ticket.date}</div>
+              </div>
+              <div>
+                <div className="text-gray-500 font-bold">Cân tổng / cân bì</div>
+                <div className="font-mono font-black">
+                  {lastSavedPurchase.ticket.grossWeight.toLocaleString()} / {lastSavedPurchase.ticket.tareWeight.toLocaleString()} kg
+                </div>
+              </div>
+              <div>
+                <div className="text-gray-500 font-bold">Khối lượng tính tiền</div>
+                <div className="font-mono font-black text-blue-800">{lastSavedPurchase.ticket.finalWeight.toLocaleString()} kg</div>
+              </div>
+              <div>
+                <div className="text-gray-500 font-bold">Đơn giá</div>
+                <div className="font-mono font-black">{lastSavedPurchase.ticket.unitPrice.toLocaleString()} đ/kg</div>
+              </div>
+              <div>
+                <div className="text-gray-500 font-bold">Kho lưu</div>
+                <div className="font-black">{lastSavedPurchase.lot.location}</div>
+              </div>
+            </div>
+
+            {(lastSavedPurchase.ticket.scannedImage || lastSavedPurchase.ticket.qualityImage) && (
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                {lastSavedPurchase.ticket.scannedImage && (
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">Ảnh phiếu cân AI</div>
+                    <img src={lastSavedPurchase.ticket.scannedImage} alt="Ảnh phiếu cân" className="h-28 w-full object-cover rounded border" />
+                  </div>
+                )}
+                {lastSavedPurchase.ticket.qualityImage && (
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">Ảnh mẫu dừa AI</div>
+                    <img src={lastSavedPurchase.ticket.qualityImage} alt="Ảnh mẫu dừa" className="h-28 w-full object-cover rounded border" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {lastSavedPurchase.ticket.aiExtractedText && (
+              <div className="mt-3 bg-gray-50 border rounded p-2 text-[10px] text-gray-600 max-h-24 overflow-auto whitespace-pre-wrap">
+                {lastSavedPurchase.ticket.aiExtractedText}
+              </div>
+            )}
+          </section>
+
+          <section className="bg-white rounded-lg shadow-sm border p-4 print:shadow-none">
+            {(() => {
+              const voucher = buildPaymentVoucher(lastSavedPurchase.ticket, lastSavedPurchase.lot.code);
+              return (
+                <>
+                  <div className="flex items-start justify-between gap-3 border-b pb-3">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-amber-700 font-black">Phiếu thanh toán</div>
+                      <h3 className="text-lg font-black text-gray-900">{voucher.code}</h3>
+                      <p className="text-xs text-gray-500">{voucher.paymentLabel}</p>
+                    </div>
+                    <div className="flex gap-2 flex-wrap justify-end">
+                      <button
+                        type="button"
+                        onClick={onOpenPayment}
+                        className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black px-3 py-2 rounded"
+                      >
+                        Qua thanh toán
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="bg-amber-500 hover:bg-amber-600 text-emerald-950 text-xs font-black px-3 py-2 rounded"
+                      >
+                        In thanh toán
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3 text-xs">
+                    <div className="flex justify-between border-b pb-2">
+                      <span className="text-gray-500 font-bold">Người nhận tiền</span>
+                      <strong>{voucher.sellerName}</strong>
+                    </div>
+                    <div className="flex justify-between border-b pb-2">
+                      <span className="text-gray-500 font-bold">Mã lô nhập</span>
+                      <strong className="font-mono">{voucher.lotCode}</strong>
+                    </div>
+                    <div className="flex justify-between border-b pb-2">
+                      <span className="text-gray-500 font-bold">Tổng tiền phải trả</span>
+                      <strong className="font-mono">{voucher.payableAmount.toLocaleString()} đ</strong>
+                    </div>
+                    <div className="flex justify-between border-b pb-2">
+                      <span className="text-gray-500 font-bold">Đã thanh toán</span>
+                      <strong className="font-mono text-emerald-700">{voucher.paidAmount.toLocaleString()} đ</strong>
+                    </div>
+                    <div className="flex justify-between bg-red-50 border border-red-100 rounded p-3">
+                      <span className="text-red-700 font-black">Còn ghi công nợ</span>
+                      <strong className="font-mono text-red-700">{voucher.remainingAmount.toLocaleString()} đ</strong>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </section>
+        </div>
+      )}
 
       {/* Purchase History Table */}
       <div className="bg-white rounded-lg shadow-sm border overflow-hidden">

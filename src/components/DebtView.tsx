@@ -6,10 +6,11 @@ interface DebtViewProps {
   sellers: Seller[];
   buyers: Buyer[];
   transactions: DebtTransaction[];
+  canEdit: boolean;
   onAddTransaction: (tx: DebtTransaction) => void;
 }
 
-export default function DebtView({ sellers, buyers, transactions, onAddTransaction }: DebtViewProps) {
+export default function DebtView({ sellers, buyers, transactions, canEdit, onAddTransaction }: DebtViewProps) {
   // Tabs for Sellers vs Buyers
   const [partnerType, setPartnerType] = useState<'seller' | 'buyer'>('seller');
 
@@ -41,6 +42,10 @@ export default function DebtView({ sellers, buyers, transactions, onAddTransacti
 
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      alert('Tài khoản hiện tại chỉ được xem. Hãy đăng nhập Admin hoặc Nhân viên kho để cập nhật công nợ.');
+      return;
+    }
     if (!selectedPartnerId) return;
 
     const partner = partnerType === 'seller'
@@ -384,8 +389,8 @@ Quy tắc tin nhắn:
 
               <button
                 type="submit"
-                disabled={!selectedPartnerId || amount <= 0}
-                className="w-full bg-emerald-800 hover:bg-emerald-950 text-white font-black py-2 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                disabled={!selectedPartnerId || amount <= 0 || !canEdit}
+                className="w-full bg-emerald-800 hover:bg-emerald-950 text-white font-black py-2 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Check size={14} />
                 <span>Xác nhận giao dịch & Cập nhật sổ quỹ</span>

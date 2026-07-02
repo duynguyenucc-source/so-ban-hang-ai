@@ -6,10 +6,11 @@ interface ShipmentsViewProps {
   buyers: Buyer[];
   lots: Lot[];
   shipments: ContainerShipment[];
+  canEdit: boolean;
   onAddShipment: (shipment: ContainerShipment) => void;
 }
 
-export default function ShipmentsView({ buyers, lots, shipments, onAddShipment }: ShipmentsViewProps) {
+export default function ShipmentsView({ buyers, lots, shipments, canEdit, onAddShipment }: ShipmentsViewProps) {
   // Shipment Form States
   const [selectedBuyerId, setSelectedBuyerId] = useState(buyers[0]?.id || '');
   const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
@@ -61,6 +62,10 @@ export default function ShipmentsView({ buyers, lots, shipments, onAddShipment }
 
   const handleExportSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      alert('Tài khoản hiện tại chỉ được xem. Hãy đăng nhập Admin hoặc Nhân viên kho để xuất container.');
+      return;
+    }
 
     const buyer = buyers.find(b => b.id === selectedBuyerId);
     if (!buyer) return;
@@ -311,8 +316,8 @@ export default function ShipmentsView({ buyers, lots, shipments, onAddShipment }
 
             <button
               type="submit"
-              disabled={totalRevenue <= 0}
-              className="w-full bg-emerald-800 hover:bg-emerald-950 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all"
+              disabled={totalRevenue <= 0 || !canEdit}
+              className="w-full bg-emerald-800 hover:bg-emerald-950 text-white font-black py-2.5 rounded-lg text-xs uppercase shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Check size={14} />
               <span>GHI NHẬN XUẤT CHUYẾN & TÍNH LÃI LỖ</span>

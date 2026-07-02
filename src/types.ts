@@ -63,6 +63,11 @@ export interface PurchaseTicket {
   paymentStatus: 'da_thanh_toan' | 'ghi_no' | 'thanh_toan_mot_phan';
   note?: string;
   scannedImage?: string; // Simulated base64 or placeholder
+  qualityImage?: string;
+  scannedImageName?: string;
+  qualityImageName?: string;
+  aiExtractedText?: string;
+  paymentVoucherCode?: string;
 }
 
 export interface ProcessingRecord {
